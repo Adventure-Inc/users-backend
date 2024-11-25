@@ -1,27 +1,22 @@
 package controllers
 
-
 import (
+	"context"
+	"fmt"
 
-		"context"
-		"fmt"
+	"log"
+	"net/http"
+	"strconv"
+	"time"
 
-		"log"
-		"net/http"
-		"strconv"
-		"time"
+	helper "github.com/krishpranav/golang-management/helpers"
+	model "github.com/krishpranav/golang-management/models"
 
-		helper "github.com/krishpranav/golang-management/helpers"
-		model "github.com/krishpranav/golang-management/models"
-
-
-		"github.com/gin-gonic/gin"
-		"go.mongodb.org/mongo-driver/bson"
-		"go.mongodb.org/mongo-driver/bson/primitive"
-		"go.mongodb.org/mongo-driver/mongo"
-		"golang.org/x/crypto/bcrypt"
-
-		""
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var userCollection *mongo.Collection = database.OpenCollection(database.Client, "user")
@@ -42,7 +37,7 @@ func GetUsers() gin.HandlerFunc {
 			page = 1
 		}
 
-		startIndex:= (page - 1) * recordPerPage
+		startIndex := (page - 1) * recordPerPage
 		startIndex, err := strcov.Atoi(c.Query("startIndex"))
 
 		matchStage := bson.D{{"$match", bson.D{{}}}}
@@ -54,17 +49,16 @@ func GetUsers() gin.HandlerFunc {
 				{"user_items", bson.D{{"$slice", []interface{}{"$data", startIndex, recordPerPage}}}},
 			}}}
 
-
 		result, err = userCollection.Aggregate(ctx, mongo.Pipeline(matchStage, projectStage))
 
 		defer cancel()
-		
+
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while listing user items"})
 			return
 		}
 
-		var allUsers[]bson.M
+		var allUsers []bson.M
 
 		if err = result.All(ctx, &allUsers); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while retrieving users"})
