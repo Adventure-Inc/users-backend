@@ -22,7 +22,7 @@ func Authentication() gin.HandlerFunc {
 
 		if err != "" {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err})
-			c.Abort
+			c.Abort()
 			return
 		}
 
