@@ -16,12 +16,14 @@ import (
 	model "github.com/Adventure-Inc/users-backend/models"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 var userCollection *mongo.Collection = database.OpenCollection(database.Client, "user")
+var validate = validator.New()
 
 func GetUsers() gin.HandlerFunc {
 
@@ -45,16 +47,22 @@ func GetUsers() gin.HandlerFunc {
 			startIndex = (page - 1) * recordPerPage
 		}
 
-		matchStage := bson.D{primitive.E{"$match", bson.D{}}}
+		matchStage := bson.D{
+			{Key: "$match", Value: bson.D{}},
+		}
 
 		projectStage := bson.D{
-			primitive.E{"$project", bson.D{
-				primitive.E{"_id", 0},
-				primitive.E{"total_count", 1},
-				primitive.E{"user_items", bson.D{primitive.E{"$slice", []interface{}{"$data", startIndex, recordPerPage}}}},
-			}}}
+			{Key: "$project", Value: bson.D{
+				{Key: "_id", Value: 0},
+				{Key: "total_count", Value: 1},
+				{Key: "user_items", Value: bson.D{{Key: "$slice", Value: []interface{}{"$data", startIndex, recordPerPage}}}},
+			}},
+		}
 
-		result, err := userCollection.Aggregate(ctx, mongo.Pipeline(matchStage, projectStage))
+		result, err := userCollection.Aggregate(ctx, mongo.Pipeline{
+			matchStage,
+			projectStage,
+		})
 
 		defer cancel()
 
@@ -105,8 +113,8 @@ func SignUp() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
-		
-		var user model.User_id
+
+		var user model.User
 
 		if err := c.BindJSON(&user); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -145,8 +153,8 @@ func SignUp() gin.HandlerFunc {
 
 		user.Created_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		user.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
-		user.ID, _ = primitive.NewObjectID()
-		user.User_id, _ = user.ID.Hex()
+		user.ID = primitive.NewObjectID()
+		user.User_id = user.ID.Hex()
 
 		token, refreshToken, _ := helper.GenerateAllTokens(*user.Email, *user.FirstName, *user.LastName, user.User_id)
 		user.Token = &token
@@ -171,7 +179,7 @@ func Login() gin.HandlerFunc {
 		var user model.User
 		var foundUser model.User
 
-		if err := c.BindJSON(&user);  err != nil {
+		if err := c.BindJSON(&user); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -179,17 +187,17 @@ func Login() gin.HandlerFunc {
 		err := userCollection.FindOne(ctx, bson.M{"email": user.Email}).Decode(&foundUser)
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "user not found, login seems to be incorrect"}),
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "user not found, login seems to be incorrect"})
 			return
 		}
 
 		passwordIsValid, msg := VerifyPassword(*user.Password, *foundUser.Password)
-		
+
 		if passwordIsValid != true {
-			c.JSON(http.StatusInternalServerError, gin{"error": msg})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			return
 		}
-		
+
 		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.FirstName, *foundUser.LastName, foundUser.User_id, *&foundUser.User_id)
 
 		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
@@ -202,14 +210,14 @@ func HashPassword(password string) string {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
 
 	if err != nil {
-		log.panic(err)
+		log.Panic(err)
 	}
 
 	return string(bytes)
 }
 
 func VerifyPassword(userPassword string, providedPassword string) (bool, string) {
-	bytes, err := bcrypt.CompareHashAndPassword([]byte(providedPassword), []byte(userPassword))
+	err := bcrypt.CompareHashAndPassword([]byte(providedPassword), []byte(userPassword))
 	check := true
 	msg := ""
 
