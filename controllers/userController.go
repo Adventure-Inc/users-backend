@@ -21,7 +21,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-var userCollection *mongo.Collection = database.OpenCollection(database.Client, "user")
+var userCollection *mongo.Collection = database.OpenCollection(database.Client, "users")
 var validate = validator.New()
 
 func GetUsers() gin.HandlerFunc {
@@ -34,18 +34,6 @@ func GetUsers() gin.HandlerFunc {
 			recordPerPage = 10
 		}
 
-		page, err1 := strconv.Atoi(c.Query("page"))
-
-		if err1 != nil {
-			page = 1
-		}
-
-		startIndex, err := strconv.Atoi(c.Query("startIndex"))
-
-		if err != nil {
-			startIndex = (page - 1) * recordPerPage
-		}
-
 		matchStage := bson.D{
 			{Key: "$match", Value: bson.D{}},
 		}
@@ -53,8 +41,9 @@ func GetUsers() gin.HandlerFunc {
 		projectStage := bson.D{
 			{Key: "$project", Value: bson.D{
 				{Key: "_id", Value: 0},
-				{Key: "total_count", Value: 1},
-				{Key: "user_items", Value: bson.D{{Key: "$slice", Value: []interface{}{"$data", startIndex, recordPerPage}}}},
+				{Key: "firstname", Value: 1},
+				{Key: "lastname", Value: 1},
+				{Key: "email", Value: 1},
 			}},
 		}
 
@@ -82,7 +71,7 @@ func GetUsers() gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, allUsers[0])
+		c.JSON(http.StatusOK, allUsers)
 
 	}
 }
@@ -117,6 +106,7 @@ func SignUp() gin.HandlerFunc {
 
 		if err := c.BindJSON(&user); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
 		}
 
 		// Validate request based on User struct
@@ -142,7 +132,7 @@ func SignUp() gin.HandlerFunc {
 		if err1 != nil {
 			log.Panic(err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while checking for the phone number"})
-
+			return
 		}
 
 		if count > 0 {

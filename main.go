@@ -10,6 +10,8 @@ import (
 
 func main() {
 
+	gin.SetMode(gin.ReleaseMode)
+
 	port := os.Getenv("PORT")
 
 	if port == "" {
