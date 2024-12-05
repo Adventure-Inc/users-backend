@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 
 	"log"
 	"net/http"
@@ -127,7 +126,7 @@ func SignUp() gin.HandlerFunc {
 			return
 		}
 
-		count, err := userCollection.CountDocuments(ctx, bson.M{"email": user.Email})
+		_, err := userCollection.CountDocuments(ctx, bson.M{"email": user.Email})
 
 		if err != nil {
 			log.Panic(err)
@@ -162,7 +161,7 @@ func SignUp() gin.HandlerFunc {
 
 		resultInsertionNumber, insertErr := userCollection.InsertOne(ctx, user)
 		if insertErr != nil {
-			msg := fmt.Sprintf("user item was not created")
+			msg := "user item was not created"
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			return
 		}
@@ -193,12 +192,12 @@ func Login() gin.HandlerFunc {
 
 		passwordIsValid, msg := VerifyPassword(*user.Password, *foundUser.Password)
 
-		if passwordIsValid != true {
+		if !passwordIsValid {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			return
 		}
 
-		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.FirstName, *foundUser.LastName, foundUser.User_id, *&foundUser.User_id)
+		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.FirstName, *foundUser.LastName, foundUser.User_id)
 
 		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
 		c.JSON(http.StatusOK, foundUser)
@@ -222,7 +221,7 @@ func VerifyPassword(userPassword string, providedPassword string) (bool, string)
 	msg := ""
 
 	if err != nil {
-		msg = fmt.Sprint("login or password is incorrect")
+		msg = "login or password is incorrect"
 		check = false
 	}
 
