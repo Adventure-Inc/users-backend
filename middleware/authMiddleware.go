@@ -10,13 +10,15 @@ import (
 
 func Authentication() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clientToken := c.Request.Header.Get("token")
+		clientToken := c.Request.Header.Get("Authorization")
 
 		if clientToken == "" {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("No authorization header provided.")})
 			c.Abort()
 			return
 		}
+
+		fmt.Printf("The client token is...... %s: \n", clientToken)
 
 		claims, err := helper.ValidateToken(clientToken)
 

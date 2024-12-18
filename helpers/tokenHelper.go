@@ -2,9 +2,12 @@ package helper
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"time"
+
+	"github.com/joho/godotenv"
 
 	"github.com/Adventure-Inc/users-backend/database"
 	jwt "github.com/dgrijalva/jwt-go"
@@ -24,7 +27,21 @@ type SignedDetails struct {
 
 var userCollection *mongo.Collection = database.OpenCollection(database.Client, "user")
 
-var SECRET_KEY string = os.Getenv("SECRET_KEY")
+// var SECRET_KEY string = os.Getenv("SECRET_KEY")
+var SECRET_KEY string
+
+func init() {
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("Error loading evn variables from .env file")
+	}
+
+	SECRET_KEY = os.Getenv("SECRET_KEY")
+
+	if SECRET_KEY == "" {
+		log.Fatal("SECERET KEY not in environment variables")
+	}
+
+}
 
 func GenerateAllTokens(email string, firstName string, lastName string, uid string) (signedToken string, signedRefreshToken string, err error) {
 	claims := &SignedDetails{
@@ -91,6 +108,8 @@ func UpdateAllTokens(signedToken string, signedRefreshToken string, userId strin
 
 func ValidateToken(signedToken string) (claims *SignedDetails, msg string) {
 
+	// fmt.Printf("The signed token is %s", signedToken)
+
 	token, err := jwt.ParseWithClaims(
 		signedToken,
 		&SignedDetails{},
@@ -110,6 +129,7 @@ func ValidateToken(signedToken string) (claims *SignedDetails, msg string) {
 	if claims.ExpiresAt < time.Now().Local().Unix() {
 		msg = "token is expired"
 		msg += ": " + err.Error()
+		fmt.Printf("The token is really expired")
 		return
 	}
 

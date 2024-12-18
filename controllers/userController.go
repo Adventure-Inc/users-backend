@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 
 	"log"
 	"net/http"
@@ -109,12 +110,16 @@ func SignUp() gin.HandlerFunc {
 			return
 		}
 
+		fmt.Sprintln("Validating the user struct")
+
 		// Validate request based on User struct
 		validationErr := validate.Struct(user)
 		if validationErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
 			return
 		}
+
+		fmt.Sprintln("Validated the user struct")
 
 		_, err := userCollection.CountDocuments(ctx, bson.M{"email": user.Email})
 
@@ -163,6 +168,7 @@ func SignUp() gin.HandlerFunc {
 
 func Login() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		fmt.Printf("About to login")
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
 		var user model.User
