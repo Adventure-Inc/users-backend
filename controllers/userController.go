@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"log"
 	"net/http"
@@ -26,34 +25,12 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 )
-
-// Credentials which stores google ids.
-type Credentials struct {
-	Cid     string `json:"cid"`
-	Csecret string `json:"csecret"`
-}
 
 var userCollection *mongo.Collection = database.OpenCollection(database.Client, "users")
 var validate = validator.New()
-var cred Credentials
 var conf *oauth2.Config
 var state string
-
-// // var store
-
-// var (
-// 	googleOauthConfig = &oauth2.Config{
-// 		ClientID:     "530410014475-jg9o39oj6hcb1gsnne7c5hcg4jf54g2l.apps.googleusercontent.com",
-// 		ClientSecret: "530410014475-jg9o39oj6hcb1gsnne7c5hcg4jf54g2l.apps.googleusercontent.com",
-// 		RedirectURL:  "http://127.0.0.1:8000/auth/google/callback",
-// 		Scopes:       []string{"https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"},
-// 		Endpoint:     google.Endpoint,
-// 	}
-// 	// Random state string to protect against CSRF attacks
-// 	oauthStateString = randToken()
-// )
 
 func randToken() string {
 	b := make([]byte, 32)
@@ -65,38 +42,19 @@ func randToken() string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
-func init() {
-	file, err := os.ReadFile("../secrets/creds.json")
-	if err != nil {
-		log.Printf("File error: %v\n", err)
-		os.Exit(1)
-	}
-	json.Unmarshal(file, &cred)
-
-	conf = &oauth2.Config{
-		ClientID:     cred.Cid,
-		ClientSecret: cred.Csecret,
-		RedirectURL:  "http://127.0.0.1:9090/auth",
-		Scopes: []string{
-			"https://www.googleapis.com/auth/userinfo.email", // You have to select your own scope from here -> https://developers.google.com/identity/protocols/googlescopes#google_sign-in
-		},
-		Endpoint: google.Endpoint,
-	}
-}
-
 func getLoginURL(state string) string {
 	return conf.AuthCodeURL(state)
 }
 
-func GoogleLogin() gin.HandlerFunc {
-	return func(c *gin.Context) {
+func SetupGoogleRoutes(group *gin.RouterGroup, conf *oauth2.Config) {
+	// Login route
+	group.GET("/auth/google/login", func(c *gin.Context) {
 		url := conf.AuthCodeURL(state, oauth2.AccessTypeOffline)
 		c.Redirect(http.StatusTemporaryRedirect, url)
-	}
-}
+	})
 
-func GoogleCallback() gin.HandlerFunc {
-	return func(c *gin.Context) {
+	// Callback route
+	group.GET("/auth/google/callback", func(c *gin.Context) {
 
 		session := sessions.Default(c)
 		retrievedState := session.Get("state")
@@ -152,15 +110,38 @@ func GoogleCallback() gin.HandlerFunc {
 			"name":    name,
 			"email":   email,
 		})
-	}
+	})
 }
 
-func loginHandler(c *gin.Context) {
-	state = randToken()
-	session := sessions.Default(c)
-	session.Set("state", state)
-	session.Save()
-	c.Writer.Write([]byte("<html><title>Golang Google</title> <body> <a href='" + getLoginURL(state) + "'><button>Login with Google!</button> </a> </body></html>"))
+func GetGoogleLogin() gin.HandlerFunc {
+
+	return func(c *gin.Context) {
+
+		if conf == nil {
+			log.Println("OAuth2 configuration is not initialized.")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "OAuth2 configuration error"})
+			return
+		}
+
+		state := randToken()
+		session := sessions.Default(c)
+		session.Set("state", state)
+		if err := session.Save(); err != nil {
+			log.Println("Failed to save session:", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
+			return
+		}
+
+		loginURL := getLoginURL(state)
+		c.Writer.Write([]byte(`
+            <html>
+                <title>Golang Google</title>
+                <body>
+                    <a href='` + loginURL + `'><button>Login with Google!</button></a>
+                </body>
+            </html>
+        `))
+	}
 }
 
 func GetUsers() gin.HandlerFunc {
