@@ -2,9 +2,7 @@ package controllers
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
-	"encoding/json"
+	"errors"
 	"fmt"
 
 	"log"
@@ -18,131 +16,15 @@ import (
 	helper "github.com/Adventure-Inc/users-backend/helpers"
 	model "github.com/Adventure-Inc/users-backend/models"
 
-	"github.com/gin-gonic/contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"golang.org/x/oauth2"
 )
 
 var userCollection *mongo.Collection = database.OpenCollection(database.Client, "users")
 var validate = validator.New()
-var conf *oauth2.Config
-var state string
-
-func randToken() string {
-	b := make([]byte, 32)
-	_, err := rand.Read(b)
-
-	if err != nil {
-		log.Panic("Failed to generate random bytes for auth token")
-	}
-	return base64.StdEncoding.EncodeToString(b)
-}
-
-func getLoginURL(state string) string {
-	return conf.AuthCodeURL(state)
-}
-
-func SetupGoogleRoutes(group *gin.RouterGroup, conf *oauth2.Config) {
-	// Login route
-	group.GET("/auth/google/login", func(c *gin.Context) {
-		url := conf.AuthCodeURL(state, oauth2.AccessTypeOffline)
-		c.Redirect(http.StatusTemporaryRedirect, url)
-	})
-
-	// Callback route
-	group.GET("/auth/google/callback", func(c *gin.Context) {
-
-		session := sessions.Default(c)
-		retrievedState := session.Get("state")
-
-		if retrievedState != c.Query("state") {
-			c.AbortWithError(http.StatusUnauthorized, fmt.Errorf("Invalid session state: %s", retrievedState))
-			return
-		}
-
-		code := c.Query("code")
-		if code == "" {
-			log.Println("No authorization code provided")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "No authorization code provided"})
-			return
-		}
-
-		// Exchange the authorization code for an access token
-		token, err := conf.Exchange(context.Background(), code)
-		if err != nil {
-			log.Println("Error while exchanging code for token:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to exchange code for token"})
-			return
-		}
-
-		// Retrieve user information from Google
-		client := conf.Client(context.Background(), token)
-
-		resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo?access_token=" + token.AccessToken)
-
-		if err != nil {
-			log.Println("Failed to retrieve user information:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve user information"})
-			return
-		}
-		defer resp.Body.Close()
-
-		var userInfo map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
-			log.Println("Failed to decode user information:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode user information"})
-			return
-		}
-
-		email := userInfo["email"].(string)
-		name := userInfo["name"].(string)
-
-		// Optionally, store or create a user record in the database
-		log.Println("User info:", userInfo)
-
-		// Respond with a success message or redirect to a protected page
-		c.JSON(http.StatusOK, gin.H{
-			"message": "Login successful",
-			"name":    name,
-			"email":   email,
-		})
-	})
-}
-
-func GetGoogleLogin() gin.HandlerFunc {
-
-	return func(c *gin.Context) {
-
-		if conf == nil {
-			log.Println("OAuth2 configuration is not initialized.")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "OAuth2 configuration error"})
-			return
-		}
-
-		state := randToken()
-		session := sessions.Default(c)
-		session.Set("state", state)
-		if err := session.Save(); err != nil {
-			log.Println("Failed to save session:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
-			return
-		}
-
-		loginURL := getLoginURL(state)
-		c.Writer.Write([]byte(`
-            <html>
-                <title>Golang Google</title>
-                <body>
-                    <a href='` + loginURL + `'><button>Login with Google!</button></a>
-                </body>
-            </html>
-        `))
-	}
-}
 
 func GetUsers() gin.HandlerFunc {
 
@@ -238,8 +120,6 @@ func SignUp() gin.HandlerFunc {
 			return
 		}
 
-		fmt.Sprintln("Validated the user struct")
-
 		_, err := userCollection.CountDocuments(ctx, bson.M{"email": user.Email})
 
 		if err != nil {
@@ -285,38 +165,43 @@ func SignUp() gin.HandlerFunc {
 	}
 }
 
+func loginUser(ctx context.Context, user model.User) (model.User, int, error) {
+	var foundUser model.User
+
+	err := userCollection.FindOne(ctx, bson.M{"email": user.Email}).Decode(&foundUser)
+	if err != nil {
+		return model.User{}, http.StatusInternalServerError, fmt.Errorf("user not found, login seems to be incorrect")
+	}
+
+	passwordIsValid, msg := VerifyPassword(*user.Password, *foundUser.Password)
+	if !passwordIsValid {
+		return model.User{}, http.StatusInternalServerError, errors.New(msg)
+	}
+
+	token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.FirstName, *foundUser.LastName, foundUser.User_id)
+	helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
+
+	return foundUser, http.StatusOK, nil
+}
+
 func Login() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		fmt.Printf("About to login")
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
 		var user model.User
-		var foundUser model.User
 
 		if err := c.BindJSON(&user); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		err := userCollection.FindOne(ctx, bson.M{"email": user.Email}).Decode(&foundUser)
-
+		foundUser, statusCode, err := loginUser(ctx, user)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "user not found, login seems to be incorrect"})
+			c.JSON(statusCode, gin.H{"error": err.Error()})
 			return
 		}
 
-		passwordIsValid, msg := VerifyPassword(*user.Password, *foundUser.Password)
-
-		if !passwordIsValid {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
-			return
-		}
-
-		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.FirstName, *foundUser.LastName, foundUser.User_id)
-
-		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
 		c.JSON(http.StatusOK, foundUser)
-
 	}
 }
 

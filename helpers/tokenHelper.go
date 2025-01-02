@@ -32,7 +32,7 @@ var SECRET_KEY string
 
 func init() {
 	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading evn variables from .env file")
+		log.Fatal("Error loading env variables from .env file")
 	}
 
 	SECRET_KEY = os.Getenv("SECRET_KEY")
